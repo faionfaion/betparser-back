@@ -10,15 +10,16 @@ from fonbet_parser import parse_period
 
 routes = web.RouteTableDef()
 
+
 @routes.get('/api/v1/runparser')
 async def events_get_endpoint(request: web.Request):
     t0 = time()
     start = datetime.datetime.now() - datetime.timedelta(days=365)
     end = datetime.datetime.now()
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(parse_period(start, end))
+    await parse_period(start, end)
     return web.Response(text=f'Parse time: {str(t0 - time())}')
+
 
 @routes.get('/api/v1/events')
 async def events_get_endpoint(request: web.Request):
@@ -51,6 +52,7 @@ async def search_by_date(date_string: str = None):
 
     cursor = collection.find({'$and': [{'startTime': {'$gte': start_date}}, {'startTime': {'$lt': end_date}}]},
                              {'_id': 0})
+
     return await cursor.to_list(length=10000)
 
 

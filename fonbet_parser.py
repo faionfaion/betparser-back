@@ -143,11 +143,8 @@ def fonbet_period_query_gen(start_period: datetime = None, end_period: datetime 
 
 
 async def save_fonbet_data(mongo_collection: motor.motor_asyncio.AsyncIOMotorCollection, content):
-    for event in content['events']:
-        await mongo_collection.update_one({'name': event['name'],
-                                           'startTime': event['startTime']},
-                                          {'$set': event},
-                                          True)
+    await mongo_collection.insert_many(content)
+    logger.debug(f'Saved to db {len(content["events"])} elements.')
 
 
 async def parse_pipeline(session: aiohttp.ClientSession,
@@ -168,7 +165,7 @@ async def parse_pipeline(session: aiohttp.ClientSession,
         except asyncio.exceptions.TimeoutError:
             logger.info(f'Timeout for query {query}. Try to change endpoint.')
         if not status:
-            await asyncio.sleep(recursion_iterator ** 2)
+            await asyncio.sleep(recursion_iterator)
             recursion_iterator += 1
             if recursion_iterator >= 10:
                 logger.error(f'ERROR parse {query}')
@@ -185,18 +182,23 @@ async def parse_period(start_period: datetime, end_period: datetime):
     db_client = motor.motor_asyncio.AsyncIOMotorClient('mongodb://localhost:27017/')
     mongo_collection = db_client['fonbetdata']['event']
 
-    if 'name_1_startTime_-1' not in await mongo_collection.index_information():
-        await mongo_collection.create_index([('name', 1), ('startTime', -1)])
 
     link_list = fonbet_period_query_gen(start_period, end_period)
     urls_to_parse = [issue for issue in link_list]
     endpoint_manager = FonbetEndpointManager()
 
+    await mongo_collection.remove({'$and': [{'startTime': {'$gte': start_period.timestamp()}},
+                                            {'startTime': {'$lt': end_period.timestamp()}}]}, {'_id': 0})
+
     async with await db_client.start_session():
-        connector = aiohttp.TCPConnector(limit_per_host=8)
+        connector = aiohttp.TCPConnector(limit_per_host=10)
         async with aiohttp.ClientSession(connector=connector) as session:
             task_list = [asyncio.create_task(parse_pipeline(session, endpoint_manager, issue, mongo_collection)) for issue in urls_to_parse]
             await asyncio.gather(*task_list)
+
+    await mongo_collection.create_index([('name', 1), ('startTime', -1)], {'unique': True})
+
+
 
 
 
